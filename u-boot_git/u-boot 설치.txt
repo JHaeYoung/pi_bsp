@@ -1,0 +1,30 @@
+$ sudo apt update
+$ sudo apt-get install gawk git-core diffstat unzip texinfo gcc-multilib build-essential chrpath socat cpio python-setuptools python3-pip python3-pexpect xz-utils debianutils iputils-ping python3-git python3-jinja2 libegl1-mesa libsdl1.2-dev xterm rsync curl zstd lz4
+
+~/pi_bsp$ sudo apt install crossbuild-essential-armhf 	//툴체인 설치
+~/pi_bsp$ git clone git://git.denx.de/u-boot.git
+~/pi_bsp$ cd u-boot
+
+$ make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- rpi_4_32b_defconfig //최초 빌드시 한번만
+$ make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- all
+
+
+=================
+참고1 - U-boot 직접 설정 저장 후 부팅-1회성
+U-Boot>setenv bootargs 8250.nr_uarts=1 console=ttyS0,115200 root=/dev/mmcblk0p2 rootwait rw
+U-Boot> mmc dev 0
+U-Boot>fatload mmc 0:1 ${kernel_addr_r} kernel7l.img
+U-Boot>fatload mmc 0:1 ${fdt_addr_r} bcm2711-rpi-4-b.dtb
+U-Boot>bootz ${kernel_addr_r} - ${fdt_addr_r}
+
+=========================
+boot_cmd.txt 에 아래 명령어 복사
+mmc dev 0; fatload mmc 0:1 ${kernel_addr_r} kernel7l.img; fatload mmc 0:1 ${    fdt_addr_r} bcm2711-rpi-4-b.dtb; bootz ${kernel_addr_r} - ${fdt_addr_r}
+
+====================
+-----참고2---- U-boot 직접 설정 저장 후 부팅-연속
+U-Boot>setenv bootargs 8250.nr_uarts=1 console=ttyS0,115200 root=/dev/mmcblk0p2 rootwait rw
+U-Boot> setenv bootcmd 'run user_mmc_boot'
+U-Boot> setenv user_mmc_boot 'mmc dev 0; fatload mmc 0:1 ${kernel_addr_r} kernel7l.img; fatload mmc 0:1 ${fdt_addr_r} bcm2711-rpi-4-b.dtb; bootz ${kernel_addr_r} - ${fdt_addr_r} '
+U-Boot> saveenv
+

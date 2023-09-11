@@ -1,0 +1,45 @@
+$ sudo apt install git bc bison flex libssl-dev make libc6-dev libncurses5-dev
+$ sudo apt install crossbuild-essential-armhf		    //32bit  toolchain
+$ git clone --depth=1 -b rpi-6.1.y https://github.com/raspberrypi/linux
+$ cd linux ; pwd
+/home/ubuntu/pi_bsp/kernel/linux
+$ make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- bcm2711_defconfig
+$ make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- zImage modules dtbs -j4
+
+- 커널 이미지 타겟 보드로 전송
+라즈베리파이 SD카드 ubuntu 연결 후 (가상머신 usb3.0 활성화)  
+$ df
+/dev/sdb1         261108    75820    185288  30% /media/ubuntu/bootfs
+/dev/sdb2       30322460 15917604  13048344  55% /media/ubuntu/rootfs
+
+$ ~/pi_bsp/kernel/linux$ sudo env PATH=$PATH make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- INSTALL_MOD_PATH=/media/ubuntu/rootfs modules_install -j4
+
+
+
+ ~/pi_bsp/kernel/linux$ sudo cp /media/ubuntu/bootfs/kernel7l.img /media/ubuntu/bootfs/$kernel7l-backup.img      //기존커널 백업
+~/pi_bsp/kernel/linux$ sudo cp arch/arm/boot/zImage /media/ubuntu/bootfs/kernel7l.img
+~/pi_bsp/kernel/linux$ sudo cp arch/arm/boot/dts/*.dtb /media/ubuntu/bootfs/
+~/pi_bsp/kernel/linux$ sudo cp arch/arm/boot/dts/overlays/*.dtb* /media/ubuntu/bootfs/overlays/
+~/pi_bsp/kernel/linux$ sudo cp arch/arm/boot/dts/overlays/README /media/ubuntu/bootfs/overlays/
+
+
+
+
+ 라즈베리파이 부팅 후 
+$uname -a     //커널 버전 빌드 시간 확인
+Linux pi00 6.1.51-v7l+ #1 SMP Thu Sep  7 11:00:06 KST 2023 armv7l GNU/Linux
+
+$ lsmod | wc -l    //모듈이 적재 되었는지 확인
+46
+
+
+
+//일단 안해도 됨
+~/pi_bsp/kernel/linux$ sudo vi /media/ubuntu/bootfs/config.txt    //제일 아래 추가
+------------
+arm_64bit=0
+------------
+
+--라즈베리파이에서 module 인스톨 하는법
+sudo ln -s 6.1.21-v71+ 6.1.51-v71+  //잘 안됨
+
