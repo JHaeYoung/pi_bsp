@@ -18,7 +18,7 @@ static int call_open(struct inode *inode, struct file *filp)
 	return 0;
 }
 static loff_t call_llseek(struct file *filp, loff_t off, int whence)
-{
+{ //loff_t : Large File Offset Type
 	printk("call llseek -> off : %08X, whence : %08X\n",(unsigned int)off, whence);
 	return 0x23;
 }
@@ -59,6 +59,8 @@ static int call_init(void)
 	int result;
 	printk("call call_init \n");
 	result = register_chrdev(CALL_DEV_MAJOR,CALL_DEV_NAME,&call_fops);
+	//register_chrdev 함수를 사용하여 문자 디바이스를 등록했지만, 이로 인해 /dev/ 디렉토리에 직접 파일이 생성되는 것은 아니다.
+	//커널 모듈 내에서 calldev라는 문자 디바이스를 등록하는 것, 커널 공간에서만 존재
 	if(result <0) return result;
 	return 0;
 }
