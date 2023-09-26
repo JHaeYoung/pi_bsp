@@ -127,7 +127,7 @@ static void gpioKeyFree(void)
 	int i;
 	for(i=0;i<GPIOKEYCNT;i++)
 	{
-			gpio_free(gpioKey[i]);
+		gpio_free(gpioKey[i]);
 	}
 }
 
@@ -144,7 +144,7 @@ static void gpioKeyFreeIrq(void)
 {
 	int i;
 	for (i = 0; i < GPIOKEYCNT; i++){
-			free_irq(sw_irq[i],NULL);
+		free_irq(sw_irq[i],NULL);
 	}
 }
 
@@ -168,15 +168,15 @@ static ssize_t ledkeydev_read(struct file *filp, char *buf, size_t count, loff_t
 //      kbuf = gpioKeyGet();
 	if(!(filp->f_flags & O_NONBLOCK))  //BLOCK Mode
 	{
-			if(sw_no == 0)
-					wait_event_interruptible(WaitQueue_Read,sw_no);
+		if(sw_no == 0)
+			wait_event_interruptible(WaitQueue_Read,sw_no);
 //              wait_event_interruptible_timeout(WaitQueue_Read,sw_no,100); //100: 1/100 *100 = 1Sec
 	}
 
 	ret=copy_to_user(buf,&sw_no,count);
 	sw_no = 0;
 	if(ret < 0)
-			return -ENOMEM;
+		return -ENOMEM;
     return count;
 }
 
@@ -189,7 +189,7 @@ static ssize_t ledkeydev_write (struct file *filp, const char *buf, size_t count
 #endif
 	ret=copy_from_user(&kbuf,buf,count);
 	if(ret < 0)
-			return -ENOMEM;
+		return -ENOMEM;
 	gpioLedSet(kbuf);
     return count;
 }
@@ -214,9 +214,9 @@ static unsigned int ledkeydev_poll(struct file * filp, struct poll_table_struct 
 	unsigned int mask = 0;   //내가 리턴해야할 값
 	printk("_key : %u \n",(wait->_key & POLLIN));
 	if(wait->_key & POLLIN)
-			poll_wait(filp, &WaitQueue_Read, wait); //이 친구도 블로킹 함수
+		poll_wait(filp, &WaitQueue_Read, wait); //이 친구도 블로킹 함수
 	if(sw_no > 0)
-			mask = POLLIN;
+		mask = POLLIN;
 	return mask;
 }
 

@@ -21,6 +21,7 @@ int main()
     {
         ioctl(dev, IOCTLTEST_KEYLEDINIT );
         printf("IOCTLTEST_KEYLEDINIT : %#x\n",IOCTLTEST_KEYLEDINIT);
+		// 원래 0x00003600 인데 
         printf( "wait... input1\n" );
         ioctl(dev, IOCTLTEST_LEDON );
         while(1)
@@ -36,6 +37,7 @@ int main()
         ioctl(dev, IOCTLTEST_LEDOFF );
         sleep(1);
         printf( "wait... input2\n" );
+		printf("IOCTLTEST_READ : %#x\n",IOCTLTEST_READ);
         while(1)
         {
             info.size = 0;
@@ -53,6 +55,7 @@ int main()
         {
             ioctl(dev, IOCTLTEST_WRITE, &info );
             info.buff[0] = ~info.buff[0];
+			// 보수를 취하더라도 info.buff[0] = 0xfffffff0 임
             usleep( 500000 );
         }
         printf( "wait... input3\n" );
