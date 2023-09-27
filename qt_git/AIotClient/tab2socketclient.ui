@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Tab2SocketClient</class>
+ <widget class="QWidget" name="Tab2SocketClient">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>603</width>
+    <height>497</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Form</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout_2" stretch="1,8,1">
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayout" stretch="7,1,1">
+     <item>
+      <widget class="QLabel" name="label">
+       <property name="text">
+        <string>Received Massage</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pPBRecvDataClear">
+       <property name="text">
+        <string>Received Data Clear</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pPBServerConnect">
+       <property name="text">
+        <string>Connect Server</string>
+       </property>
+       <property name="checkable">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QVBoxLayout" name="verticalLayout">
+     <item>
+      <widget class="QTextEdit" name="pTextDataRecv"/>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayout_2" stretch="2,6,2">
+     <item>
+      <widget class="QLineEdit" name="pLERecvid"/>
+     </item>
+     <item>
+      <widget class="QLineEdit" name="pLESendData"/>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pPBSend">
+       <property name="text">
+        <string>Send</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
