@@ -21,7 +21,9 @@
 #include <linux/pwm.h>
 #include <linux/i2c.h>
 #include <linux/delay.h>
+#include "ioctl.h"
 
+#define DEBUG 1
 #define DRIVER_NAME "illumiLCD"
 #define DRIVER_CLASS "illumiLCDClass"
 
@@ -36,6 +38,14 @@
 #define BH1750_CONTINUOUS_MEASUREMENT 0x10
 #define Continuously_H_Resolution_Mode2 0x11
 #define Continuously_L_Resolution_Mode 0x13
+
+#define MAXDATA 65535
+#define INITPWM 500
+#define PERIOD 1000
+
+DECLARE_WAIT_QUEUE_HEAD(WaitQueue_Read);
+
+
 /* i2c init */
 static struct i2c_adapter * bh1750_i2c_adapter = NULL;
 static struct i2c_client * bh1750_i2c_client = NULL;
@@ -62,11 +72,24 @@ static struct cdev etx_cdev;
 
 /* PWM init */
 struct pwm_device *pwm0 = NULL;
-u32 pwm_on_time = 500000000;
+static unsigned long pwm_value;
+static int pwm_to_copy=0;
+static int pwmCal =0;
+static char pwm_str[10];
+/* timer_val init */
+static int timer_val = 100; //f=100HZ, T=1/100 = 10ms, 100*10ms = 1Sec
+struct timer_list timerLed;
+static void kerneltimer_registertimer(unsigned long timeover);
+static void kerneltimer_func(struct timer_list *t);
 
-/* LCD char buffer */
-static char lcd_buffer[17];
-unsigned int gpios[] = {
+/* gpio_irq init*/
+static int sw_irq[3] = {0};
+#define GPIOKEYCNT 3
+#define gpioName(a,b) #a#b     //"led""0" == "led0"
+static int gpio_key[GPIOKEYCNT] = {16,20,21};
+static char sw_no = 0;
+
+unsigned int gpio_lcd[] = {
 	24, /* Enable Pin */
 	18, /* Register Select Pin */
 	6, /* Data Pin 0*/
@@ -78,21 +101,70 @@ unsigned int gpios[] = {
 	11, /* Data Pin 6*/
 	5, /* Data Pin 7*/
 };
-#define REGISTER_SELECT gpios[1]
+#define REGISTER_SELECT gpio_lcd[1]
 
 void lcd_enable(void) {
-	gpio_set_value(gpios[0], 1);
+	gpio_set_value(gpio_lcd[0], 1);
 	msleep(5);
-	gpio_set_value(gpios[0], 0);
+	gpio_set_value(gpio_lcd[0], 0);
 }
 /*
  * @brief set the 8 bit data bus
  * @param data: Data to set
  */
+
+static int gpioKeyInit(void)
+{
+    int i;
+    int ret=0;;
+    for(i=0;i<GPIOKEYCNT;i++)
+    {
+        ret = gpio_request(gpio_key[i], gpioName(key,i));
+        if(ret < 0) {
+            printk("Failed Request gpio%d error\n", 6);
+            return ret;
+        }
+    }
+    for(i=0;i<GPIOKEYCNT;i++)
+    {
+        ret = gpio_direction_input(gpio_key[i]);
+        if(ret < 0) {
+            printk("Failed direction_output gpio%d error\n", 6);
+     return ret;
+        }
+    }
+    return ret;
+}
+
+static void gpioKeyFree(void)
+{
+    int i;
+    for(i=0;i<GPIOKEYCNT;i++)
+    {
+        gpio_free(gpio_key[i]);
+    }
+}
+
+static void gpioKeyToIrq(void)
+{
+    int i;
+    for (i = 0; i < GPIOKEYCNT; i++) {
+    sw_irq[i] = gpio_to_irq(gpio_key[i]);
+    }
+}
+
+static void gpioKeyFreeIrq(void)
+{
+    int i;
+    for (i = 0; i < GPIOKEYCNT; i++){
+        free_irq(sw_irq[i],NULL);
+    }
+}
+
 void lcd_send_byte(char data) {
 	int i;
 	for(i=0; i<8; i++)
-		gpio_set_value(gpios[i+2], ((data) & (1<<i)) >> i);
+		gpio_set_value(gpio_lcd[i+2], ((data) & (1<<i)) >> i);
 	lcd_enable();
 	msleep(5);
 }
@@ -128,69 +200,210 @@ static int bh1750_init(struct i2c_client *client)
     return 0;
 }
 
+irqreturn_t sw_isr(int irq, void *unuse)
+{
+    int i;
+	for(i=0;i<GPIOKEYCNT;i++)
+    {
+        if(irq == sw_irq[i])
+        {
+            sw_no = i+1;			
+            break;
+        }
+    }
+    printk("IRQ : %d, sw_no : %d\n",irq,sw_no);	
+    return IRQ_HANDLED;
+}
+
+static int requestIrqInit(struct file *file)
+{
+	int result= 0;
+	
+    for(int i=0;i<GPIOKEYCNT;i++)
+    {
+        result = request_irq(sw_irq[i],sw_isr,IRQF_TRIGGER_RISING,gpioName(key,i),NULL);		 
+        if(result)
+        {
+            printk("#### FAILED Request irq %d. error : %d \n", sw_irq[i], result);
+            break;
+        }
+    }	
+	return 0;
+}
+
+static int illumiLCD_open(struct inode *inode, struct file *file)
+{
+	int *bh1750_data=NULL;	
+	bh1750_data = kmalloc(sizeof(char),GFP_KERNEL);	
+	if(!bh1750_data) 
+		return -ENOMEM;	
+	file->private_data = bh1750_data;
+	
+	gpioKeyInit();
+	gpioKeyToIrq();
+	requestIrqInit(file);
+	kerneltimer_registertimer(timer_val);
+	return 0;
+}
+
+
 static ssize_t bh1750_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 {
     int ret;
-    char data[2];
-	static int bh1750_data = 0;
+    char data[2];	
+	int *bh1750_data = file->private_data;
     // BH1750 센서로부터 데이터 읽기
+	
     ret = i2c_master_recv(bh1750_i2c_client, data, 2);
     if (ret < 0) {
         printk(KERN_ERR "Error reading data from BH1750 sensor\n");
         return ret;
-    }
+    }	
 	// Wait for conversion to complete (depends on mode)
-    msleep(180); // You may need to adjust this based on your mode selection
+    msleep(180);
 
     // 데이터를 16비트로 변환하여 bh1750_data에 저장
-    bh1750_data = (data[0] << 8) | data[1];
+    *bh1750_data = (data[0] << 8) | data[1];
 
     // 사용자 공간으로 데이터 전송
-    ret = copy_to_user(buf, &bh1750_data, sizeof(bh1750_data));
+    ret = copy_to_user(buf, bh1750_data, sizeof(bh1750_data));
     if (ret != 0) {
         printk(KERN_ERR "Failed to copy data to user space\n");
         return -EFAULT;
-    }
-	printk("read\n");
+    }	
+	printk("bh1750_data : %d\n",*bh1750_data);
+	
+	
     return sizeof(bh1750_data);
 }
 
-static ssize_t pwm_lcd_write(struct file *File, const char *user_buffer, size_t count, loff_t *offs) {
+static ssize_t pwm_lcd_write(struct file *file, const char *user_buffer, size_t count, loff_t *offs) {
 	int to_copy, not_copied, delta;
-	unsigned long pwm_value;
-	printk("pwm_write\n");
+
 	/* Get amount of data to copy */
 	to_copy = min(count, sizeof(pwm_value));
-	printk("to_copy\n");
+	pwm_to_copy=to_copy;
 	/* Copy data to user */
-	not_copied = copy_from_user(&pwm_value, user_buffer, to_copy);
-
-	/* Set PWM on time */
-	//if(pwm_value < 0 || pwm_value > 65536)
-		//printk("Invalid Value\n");
-	//else
-	//pwm_config(pwm0, 1000000000 * ((65535-pwm_value)/65535), 1000000000);
-	pwm_config(pwm0, 1000 * 0.5, 1000);
-	printk("pwm_value : %ld\n",pwm_value);
+	not_copied = copy_from_user(&pwm_value, user_buffer, to_copy);	
+	
+	/* lcd_write */	
+	lcd_command(0x1);
+	snprintf(pwm_str, sizeof(pwm_str), "%ld", pwm_value);
+	pwm_str[sizeof(pwm_str)-1] = '\0';	
 	
 	/* Set the new data to the display */
-	lcd_command(0x1);
+	for(int i=0; i<pwm_to_copy; i++)
+		lcd_data(pwm_str[i]);	
 	
-	for(int i=0; i<to_copy; i++)
-		lcd_data(pwm_value);	
-	
-	/* Calculate data */
 	delta = to_copy - not_copied;
-
 	return delta;
+}
+
+static int illumiLCD_release(struct inode *inode, struct file *file)
+{	
+	gpioKeyFree();
+	gpioKeyFreeIrq();
+	if(file->private_data) 
+		kfree(file->private_data);
+	if(timer_pending(&timerLed)) //타이머가 실행하고 있는지 확인 
+        del_timer(&timerLed);
+	printk("illumiLCD closed.\n");
+	return 0;
+}
+
+static unsigned int illumiLCD_poll(struct file * filp, struct poll_table_struct * wait)
+{
+	unsigned int mask = 0;   //내가 리턴해야할 값
+	printk("_key : %u \n",(wait->_key & POLLIN));
+	if(wait->_key & POLLIN)
+		poll_wait(filp, &WaitQueue_Read, wait); //이 친구도 블로킹 함수
+	if(sw_no > 0)
+		mask = POLLIN;
+	return mask;
+}
+
+static long illumiLCD_ioctl (struct file *file, unsigned int cmd, unsigned long arg)
+{
+	illumiLCD_data info = {0};
+#if DEBUG
+    //printk( "ledkeydev ioctl -> cmd : %08X, arg : %08X \n", cmd, (unsigned int)arg );
+#endif
+	int err, size;
+	
+	if( _IOC_TYPE( cmd ) != IOCTLTEST_MAGIC ) return -EINVAL;
+	if( _IOC_NR( cmd ) >= IOCTLTEST_MAXNR ) return -EINVAL;
+	size = _IOC_SIZE( cmd );
+    if( size )
+    {
+        err = 0;
+        if( _IOC_DIR( cmd ) & _IOC_READ ) // 방향 즉 read인지 write인지 확인하는 함수
+//              err = access_ok( VERIFY_WRITE, (void *) arg, size );
+            err = access_ok( (void *) arg, size ); // 아무 문제 없으면 0보다 큰값이 리턴
+        if( _IOC_DIR( cmd ) & _IOC_WRITE )
+//              err = access_ok( VERIFY_READ , (void *) arg, size );
+            err = access_ok( (void *) arg, size );
+			// 이 주소부터 size만큼의 공간에 접근 가능한지 체크하는 함수           
+        if( !err ) return err;
+    }		
+	switch( cmd )
+    {
+    case TIMER_START :
+		if(!timer_pending(&timerLed))
+			kerneltimer_registertimer(timer_val);		
+        break;
+    case TIMER_STOP :
+		if(timer_pending(&timerLed)) //타이머가 실행하고 있는지 확인 
+			del_timer(&timerLed);	
+        break;
+	case PWM_VALUE :				
+		err = copy_from_user((void *)&info,(void *)arg,(unsigned long)sizeof(info));	
+		pwmCal= info.pwm_val;
+		pwm_config(pwm0, pwmCal , PERIOD);
+		break;	
+	case KEYVAL_READ :
+		info.key_no = sw_no;
+		err = copy_to_user((void *)arg,(const void *)&info,(unsigned long)sizeof(info));
+		break;	
+	default:
+		err =-E2BIG;
+		break;
+	}	
+	
+    return err;
+}
+
+
+static void kerneltimer_registertimer(unsigned long timeover)
+{
+    timer_setup( &timerLed,kerneltimer_func,0);
+    timerLed.expires = get_jiffies_64() + timeover;  //10ms *100 = 1sec
+    add_timer( &timerLed );
+}
+static void kerneltimer_func(struct timer_list *t )
+{		
+	pwmCal = (MAXDATA*2*PERIOD -pwm_value*PERIOD)/MAXDATA -PERIOD;
+	
+#if DEBUG
+	//printk("pwm_value : %d\n",pwmCal);
+#endif
+	pwm_config(pwm0, pwmCal , PERIOD);
+    mod_timer(t,get_jiffies_64() + timer_val);
+		
+	
 }
 
 static struct file_operations fops =
 {
   .owner          = THIS_MODULE,
+  .open			  = illumiLCD_open,
   .read           = bh1750_read,
   .write 		  = pwm_lcd_write,	
+  .unlocked_ioctl = illumiLCD_ioctl,
+  .poll     	  = illumiLCD_poll,
+  .release        = illumiLCD_release,
 };
+
+
 
 static int __init illumiLCDInit(void) {	
 	int ret =0;	
@@ -228,7 +441,7 @@ static int __init illumiLCDInit(void) {
 		printk(KERN_ERR "Failed to request PWM device\n");
 		return PTR_ERR(pwm0);
 	}
-	pwm_config(pwm0, pwm_on_time, 1000);
+	pwm_config(pwm0, INITPWM, 1000);
 	pwm_enable(pwm0);	
 	
 	/* bh1750_i2c_adapting i2c */
@@ -260,14 +473,14 @@ static int __init illumiLCDInit(void) {
 	/* Initialize LCD_GPIOs */
 	printk("lcd-driver - GPIO Init\n");
 	for(i=0; i<10; i++) {
-		if(gpio_request(gpios[i], names[i])) {
-			printk("lcd-driver - Error Init GPIO %d\n", gpios[i]);
+		if(gpio_request(gpio_lcd[i], names[i])) {
+			printk("lcd-driver - Error Init GPIO %d\n", gpio_lcd[i]);
 			goto GpioInitError;
 		}
 	}	
 	printk("lcd-driver - Set GPIOs to output\n");
 	for(i=0; i<10; i++) {
-		if(gpio_direction_output(gpios[i], 0)) {
+		if(gpio_direction_output(gpio_lcd[i], 0)) {
 			printk("lcd-driver - Error setting GPIO %d to output\n", i);
 			goto GpioDirectionError;
 		}
@@ -315,15 +528,17 @@ ExitError:
 }
 
 static void __exit illumiLCDExit(void) {
-	printk("MyDeviceDriver - Goodbye, Kernel!\n");
 	int i;
+	printk("MyDeviceDriver - Goodbye, Kernel!\n");	
 	lcd_command(0x1);	/* Clear the display */
 	for(i=0; i<10; i++){
-		gpio_set_value(gpios[i], 0);
-		gpio_free(gpios[i]);
+		gpio_set_value(gpio_lcd[i], 0);
+		gpio_free(gpio_lcd[i]);
 	}
 	pwm_disable(pwm0);
 	pwm_free(pwm0);
+	if(timer_pending(&timerLed)) //타이머가 실행하고 있는지 확인 
+		del_timer(&timerLed);
 	i2c_unregister_device(bh1750_i2c_client);
     i2c_del_driver(&bh1750_driver);
     device_destroy(dev_class, dev);

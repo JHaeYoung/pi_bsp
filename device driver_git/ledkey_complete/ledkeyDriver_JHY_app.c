@@ -60,7 +60,6 @@ int main(int argc, char *argv[])
 
     while(loopFlag)
     {
-
         ret = poll(Events, 2, 1000);
         if(ret==0)
         {
@@ -69,7 +68,7 @@ int main(int argc, char *argv[])
         }
         if(Events[0].revents & POLLIN)  //dev : keyled
         {
-        read(dev,&key_no,sizeof(key_no));
+			read(dev,&key_no,sizeof(key_no));
             printf("key_no : %d\n",key_no);
             switch(key_no)
             {
