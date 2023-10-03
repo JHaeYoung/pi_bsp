@@ -18,8 +18,8 @@
 #include <linux/poll.h>
 #include "ioctl.h"
 
-#define KTIMER_DEV_NAME "kerneltimer_dev"
-#define KTIMER_DEV_MAJOR 230
+#define LEDKEY_DEV_NAME "kerneltimer_dev"
+#define LEDKEY_DEV_MAJOR 230
 
 #define gpioName(a,b) #a#b     //"led""0" == "led0"
 #define GPIOLEDCNT 8
@@ -179,14 +179,14 @@ irqreturn_t sw_isr(int irq, void *privateData)
     return IRQ_HANDLED;
 }
 
-static int ktimer_open(struct inode *inode, struct file *filp)
+static int ledkeydev_open(struct inode *inode, struct file *filp)
 {
 	char * pSw_no=NULL;
 	int num = MINOR(inode->i_rdev);	
 	int result=0;
-	printk("ktimer open -> minor : %d\n", num);
+	printk("ledkeydev open -> minor : %d\n", num);
 	num = MAJOR(inode->i_rdev);
-	printk("ktimer open -> major : %d\n", num);
+	printk("ledkeydev open -> major : %d\n", num);
 
 	
 	
@@ -209,7 +209,7 @@ static int ktimer_open(struct inode *inode, struct file *filp)
 	return 0;
 }
 
-static ssize_t ktimer_read(struct file *filp, char *buff, size_t count, loff_t *f_pos)
+static ssize_t ledkeydev_read(struct file *filp, char *buff, size_t count, loff_t *f_pos)
 {
     int ret;
 	char *pSw_no = filp->private_data;
@@ -227,7 +227,7 @@ static ssize_t ktimer_read(struct file *filp, char *buff, size_t count, loff_t *
         return -ENOMEM;
     return count;
 }
-static ssize_t ktimer_write(struct file *filp, const char *buff, size_t count, loff_t *f_pos)
+static ssize_t ledkeydev_write(struct file *filp, const char *buff, size_t count, loff_t *f_pos)
 {
     //char kbuf;
     int ret;
@@ -242,7 +242,7 @@ static ssize_t ktimer_write(struct file *filp, const char *buff, size_t count, l
     return count;
 }
 
-static long ktimer_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
+static long ledkeydev_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	keyled_data ctrl_info = {0};
 	char *pSw_no = filp->private_data;
@@ -289,7 +289,7 @@ static long ktimer_ioctl (struct file *filp, unsigned int cmd, unsigned long arg
     return err;
 }
 
-static int ktimer_release(struct inode *inode, struct file *filp)
+static int ledkeydev_release(struct inode *inode, struct file *filp)
 {
 	gpioLedFree();
     gpioKeyFreeIrq(filp);
@@ -314,15 +314,15 @@ static unsigned int ledkeydev_poll(struct file * filp, struct poll_table_struct 
 	return mask;
 }
 
-struct file_operations ktimer_fops =
+struct file_operations ledkeydev_fops =
 {
 	.owner = THIS_MODULE,
-	.read   = ktimer_read,
-	.write  = ktimer_write,
-	.open   = ktimer_open,
-	.unlocked_ioctl = ktimer_ioctl,
+	.read   = ledkeydev_read,
+	.write  = ledkeydev_write,
+	.open   = ledkeydev_open,
+	.unlocked_ioctl = ledkeydev_ioctl,
 	.poll     = ledkeydev_poll,
-	.release  = ktimer_release,
+	.release  = ledkeydev_release,
 };
 
 static int requestIrqInit(struct file *filp)
@@ -358,27 +358,28 @@ static void kerneltimer_func(struct timer_list *t )
     mod_timer(t,get_jiffies_64() + timerVal);
 }
 
-int kerneltimer_init(void)
+int ledkeydev_init(void)
 {
 	int result;
 	int i;
- 	result = register_chrdev(KTIMER_DEV_MAJOR,KTIMER_DEV_NAME,&ktimer_fops);
+ 	result = register_chrdev(LEDKEY_DEV_MAJOR,LEDKEY_DEV_NAME,&ledkeydev_fops);
 	if(result <0) return result;
 	
 	//kerneltimer_registertimer(timerVal);
-	printk("ktimer ktimer_init \n");	
+	printk("
+	ledkeydev_init \n");	
 #if DEBUG
     printk("timerVal : %d , sec : %d \n",timerVal,timerVal/HZ );
 #endif
 		
     return 0;
 }
-void kerneltimer_exit(void)
+void ledkeydev_exit(void)
 {
-	unregister_chrdev(KTIMER_DEV_MAJOR,KTIMER_DEV_NAME);
+	unregister_chrdev(LEDKEY_DEV_MAJOR,LEDKEY_DEV_NAME);
 }
-module_init(kerneltimer_init);
-module_exit(kerneltimer_exit);
+module_init(ledkeydev_init);
+module_exit(ledkeydev_exit);
 MODULE_AUTHOR("KCCI-AIOT JHY");
 MODULE_DESCRIPTION("led key test module");
 MODULE_LICENSE("Dual BSD/GPL");
