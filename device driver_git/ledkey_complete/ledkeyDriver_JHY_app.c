@@ -36,6 +36,8 @@ int main(int argc, char *argv[])
         return 2;
     }
     printf("Author:JHY\n");
+	printf("key1 : Timer Stop | key2 : Timer Value | key3 : LED Value | key4 : Timer Start | ket8 : Exit\n");
+
     timer_val = atoi(argv[2]);
     info.timer_val = timer_val;
 

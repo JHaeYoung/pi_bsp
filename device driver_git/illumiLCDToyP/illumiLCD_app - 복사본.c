@@ -40,7 +40,6 @@ int main() {
     while(loopFlag)
     {
         ret = poll(Events, 2, 1000);
-		//printf("ret : %d\n",ret);
         if(ret==0)
         {
 //          printf("poll time out : %d\n",cnt++);
@@ -55,7 +54,7 @@ int main() {
 		if(Events[0].revents & POLLIN)  //fd : keyled
         {			
 			ioctl(fd, KEYVAL_READ, &info);
-            //printf("key_no : %d\n",info.key_no);
+            printf("key_no : %d\n",info.key_no);
             switch(info.key_no)
             {
                 case 1:
@@ -74,7 +73,7 @@ int main() {
                 break;
             }
         }
-        if(Events[1].revents & POLLIN) //keyboard
+        else if(Events[1].revents & POLLIN) //keyboard
         {
 			fflush(stdin); //입력 버퍼를 비워주는 역할
             fgets(inputString,sizeof(inputString),stdin);
@@ -94,14 +93,13 @@ int main() {
 		if(oldData < data-5 || oldData > data+5)
 		{
 			printf("Data read from bh1750 sensor: %ld\n", data);
-		}
-/*		
+		}		
 		ssize_t bytes_write = write(fd, &data, sizeof(data));
 		if (bytes_read != sizeof(data)) {
 			perror("Failed to read data from device");
 			close(fd);
 			return -1;
-		}	*/			
+		}				
 		oldData = data;	
 		info.key_no = 0;	
 	}	

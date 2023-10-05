@@ -21,8 +21,6 @@
 #include <linux/pwm.h>
 #include <linux/i2c.h>
 #include <linux/delay.h>
-#include <linux/timer.h>
-#include <linux/workqueue.h>
 #include "ioctl.h"
 
 #define DEBUG 1
@@ -38,7 +36,7 @@
 #define BH1750_POWER_ON 0x01
 #define BH1750_RESET 0x07
 #define BH1750_CONTINUOUS_MEASUREMENT 0x10
-#define Continuously_H_Resolution_Mode 0x10
+#define Continuously_H_Resolution_Mode2 0x11
 #define Continuously_L_Resolution_Mode 0x13
 
 #define MAXDATA 65535
@@ -76,15 +74,12 @@ static struct cdev etx_cdev;
 struct pwm_device *pwm0 = NULL;
 static unsigned long pwm_value;
 static int pwmCal =0;
+static char pwm_str[10];
 /* timer_val init */
 static int timer_val = 100; //f=100HZ, T=1/100 = 10ms, 100*10ms = 1Sec
 struct timer_list timerLed;
 static void kerneltimer_registertimer(unsigned long timeover);
 static void kerneltimer_func(struct timer_list *t);
-
-/* lcd_work init*/
-static struct workqueue_struct *lcd_workqueue;
-static struct work_struct lcd_work;
 
 /* gpio_irq init*/
 static int sw_irq[3] = {0};
@@ -188,7 +183,7 @@ static int bh1750_init(struct i2c_client *client)
 	int ret;	
     //Send the power-on command to the BH1750 sensor
     char cmd_power_on = BH1750_POWER_ON;
-	char cmd_set_mode = Continuously_H_Resolution_Mode;
+	char cmd_set_mode = Continuously_L_Resolution_Mode;
 	//char cmd_power_on = BH1750_POWER_DOWN;
     ret = i2c_master_send(client, &cmd_power_on, 1);
     if (ret < 0) {
@@ -268,7 +263,7 @@ static ssize_t bh1750_read(struct file *file, char __user *buf, size_t count, lo
 
     // 데이터를 16비트로 변환하여 bh1750_data에 저장
     *bh1750_data = (data[0] << 8) | data[1];
-	pwm_value = *bh1750_data;
+
     // 사용자 공간으로 데이터 전송
     ret = copy_to_user(buf, bh1750_data, sizeof(bh1750_data));
     if (ret != 0) {
@@ -317,18 +312,21 @@ char custom_strlen(const char *str) {
     return length;
 }
 
-
-static void lcd_work_func(struct work_struct *work) {
-	
-	const  char *sub = "PWM :";
+static ssize_t pwm_lcd_write(struct file *file, const char *user_buffer, size_t count, loff_t *offs) {
+	int to_copy, not_copied, delta;
+	const  char *sub = "pwm :";
 	const  char *per = "%";
 	char *result;
 	char pwm_per;
-	char pwm_str[10];
-	int len;	
+	int len;
+	
+	/* Get amount of data to copy */
+	to_copy = min(count, sizeof(pwm_value));
+	
+	/* Copy data to user */
+	not_copied = copy_from_user(&pwm_value, user_buffer, to_copy);	
 	
 	pwm_per = ((pwm_value*2*100)/(MAXDATA))/2;
-	printk("pwm_value: %d\n", pwm_value);
 	printk("pwm_per: %d\n", pwm_per);
 	/* lcd_write */	
 	lcd_command(0x1);
@@ -337,16 +335,19 @@ static void lcd_work_func(struct work_struct *work) {
 	
 	result= custom_strcat(sub, pwm_str);
 	result= custom_strcat(result, per);
-	/*
     if (!result) {
         printk(KERN_ERR "Memory allocation error\n");
         return -ENOMEM;
-    }	*/
+    }	
 	len = custom_strlen(result);
 	/* Set the new data to the display */
 	for(int i=0; i<len; i++)
 		lcd_data(result[i]);	
-
+	//printk(KERN_INFO "Concatenated string: %s\n", result);
+		
+	delta = to_copy - not_copied;
+	kfree(result);
+	return delta;
 }
 
 static int illumiLCD_release(struct inode *inode, struct file *file)
@@ -407,10 +408,8 @@ static long illumiLCD_ioctl (struct file *file, unsigned int cmd, unsigned long 
         break;
 	case PWM_VALUE :				
 		err = copy_from_user((void *)&info,(void *)arg,(unsigned long)sizeof(info));	
-		pwmCal= info.pwm_val;		
-		pwm_config(pwm0, pwmCal , PERIOD);	
-		pwm_value = pwmCal*MAXDATA/PERIOD;
-		queue_work(lcd_workqueue, &lcd_work);
+		pwmCal= info.pwm_val;
+		pwm_config(pwm0, pwmCal , PERIOD);
 		break;	
 	case KEYVAL_READ :
 		info.key_no = sw_no;
@@ -432,16 +431,13 @@ static void kerneltimer_registertimer(unsigned long timeover)
     add_timer( &timerLed );
 }
 static void kerneltimer_func(struct timer_list *t )
-{	
+{		
 	pwmCal = (MAXDATA*2*PERIOD -pwm_value*PERIOD)/MAXDATA -PERIOD;
 	
 #if DEBUG
 	//printk("pwm_value : %d\n",pwmCal);
 #endif
 	pwm_config(pwm0, pwmCal , PERIOD);
-	
-	queue_work(lcd_workqueue, &lcd_work);
-	
     mod_timer(t,get_jiffies_64() + timer_val);
 		
 	
@@ -452,7 +448,7 @@ static struct file_operations fops =
   .owner          = THIS_MODULE,
   .open			  = illumiLCD_open,
   .read           = bh1750_read,
-  //.write 		  = pwm_lcd_write,	
+  .write 		  = pwm_lcd_write,	
   .unlocked_ioctl = illumiLCD_ioctl,
   .poll     	  = illumiLCD_poll,
   .release        = illumiLCD_release,
@@ -539,7 +535,7 @@ static int __init illumiLCDInit(void) {
 			printk("lcd-driver - Error setting GPIO %d to output\n", i);
 			goto GpioDirectionError;
 		}
-	}	
+	}
 	/* Init the display */
 	lcd_command(0x30);	/* Set the display for 8 bit data interface */
 
@@ -551,8 +547,6 @@ static int __init illumiLCDInit(void) {
 	for(i=0; i<sizeof(text)-1;i++)
 		lcd_data(text[i]);
 	
-	lcd_workqueue = create_workqueue("lcd_workqueue");
-	INIT_WORK(&lcd_work, lcd_work_func);
     return 0;
 	
 GpioDirectionError:
@@ -587,8 +581,6 @@ ExitError:
 static void __exit illumiLCDExit(void) {
 	int i;
 	printk("MyDeviceDriver - Goodbye, Kernel!\n");	
-    flush_workqueue(lcd_workqueue);
-    destroy_workqueue(lcd_workqueue);	
 	lcd_command(0x1);	/* Clear the display */
 	for(i=0; i<10; i++){
 		gpio_set_value(gpio_lcd[i], 0);
