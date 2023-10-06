@@ -30,6 +30,7 @@ int main() {
         return -1;
     }
 	printf("Author:JHY\n");
+	printf("key1 : Manual PWM Mode |  key2 : Auto PWM Mode | key3 : Exit \n");
     memset( Events, 0, sizeof(Events));
 
     Events[0].fd = fd;

@@ -329,7 +329,7 @@ static void lcd_work_func(struct work_struct *work) {
 	
 	pwm_per = ((pwm_value*2*100)/(MAXDATA))/2;
 	printk("pwm_value: %d\n", pwm_value);
-	printk("pwm_per: %d\n", pwm_per);
+	printk("pwm_per: %d%%\n", pwm_per);
 	/* lcd_write */	
 	lcd_command(0x1);
 	snprintf(pwm_str, sizeof(pwm_str), "%d", pwm_per);
@@ -433,10 +433,10 @@ static void kerneltimer_registertimer(unsigned long timeover)
 }
 static void kerneltimer_func(struct timer_list *t )
 {	
-	pwmCal = (MAXDATA*2*PERIOD -pwm_value*PERIOD)/MAXDATA -PERIOD;
+	pwmCal = (pwm_value*2*PERIOD)/MAXDATA/2;
 	
 #if DEBUG
-	//printk("pwm_value : %d\n",pwmCal);
+	printk("pwmCal : %d\n",pwmCal);
 #endif
 	pwm_config(pwm0, pwmCal , PERIOD);
 	
